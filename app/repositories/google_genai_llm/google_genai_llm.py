@@ -193,7 +193,7 @@ class GoogleGeminaiRepository:
     # -------- CHATBOT CONTINUATION METHOD --------
 
     @staticmethod
-    async def chatbot_continue_conversation(user_message: any,
+    async def chatbot_continue_conversation(
         chat_history: ChatBotContinueConversationInput,  # Past messages in the chat
         questions: Union[Questions, List[str]],  # List of questions or Questions object
     ) -> ChatBotContinueOutput:
@@ -210,9 +210,7 @@ class GoogleGeminaiRepository:
 
         if not questions:
             raise HTTPException(status_code=400, detail="questions cannot be empty")
-        
-        if not user_message: 
-            raise HTTPException(status_code=400, detail="user_message cannot be empty")
+
 
         # -------------------- Step 1: Define PromptTemplate --------------------
         # Template instructs the LLM on how to respond
