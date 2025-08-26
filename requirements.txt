@@ -1,0 +1,22 @@
+# FastAPI and dependencies
+fastapi
+uvicorn[standard]
+sqlalchemy
+asyncpg
+alembic
+httpx
+psycopg2-binary
+
+# Redis (async support)
+redis[async]
+
+# LangChain core packages
+langchain
+langchain-core
+langchain-community
+langchain-google-genai   # Add Gemini support
+langchain-openai         # (keep only if you also want OpenAI models)
+langchainhub
+
+# Google Generative AI SDK
+google-generativeai      #  Required for Gemini
