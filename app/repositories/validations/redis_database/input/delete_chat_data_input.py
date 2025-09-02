@@ -1,20 +1,36 @@
 # ------------------- IMPORTS -------------------
 from pydantic import BaseModel, Field
 from uuid import UUID
+from typing import Any, Dict
 import json
 
-# ------------------- DELETE CHAT DATA INPUT -------------------
+
+# ------------------- DELETE CHAT DATA INPUT MODEL -------------------
 class DeleteChatDataInput(BaseModel):
-    # Required UUID of the chat session or data to delete from Redis
+
+    # Model for validating input when deleting chat data from Redis.
+    # Contains only the session ID of the chat data to delete.
+
     session_id: UUID = Field(
-        ...,  # Ellipsis indicates that this field is required
-        description="The unique UUID of the chat data to be deleted from Redis"
+        ..., description="The unique UUID of the chat data to be deleted from Redis."
     )
 
-    # Convert the model to a JSON string for storage or transmission
     def to_json(self) -> str:
-        # Convert UUID to string so it can be serialized to JSON
-        self.session_id = str(self.session_id)
-        # DeleteChatDataInput does not have a timestamp, so this line should be removed
-        # self.timestamp = str(self.timestamp)
-        return json.dumps(self.dict())  # Convert the model dictionary to JSON
+
+        # Converts this model instance to a JSON string.
+        # Useful for storing, logging, or sending via an API.
+
+        self.session_id = str(self.session_id)  # Convert UUID to string for JSON
+        return json.dumps(self.dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "DeleteChatDataInput":
+
+        # Converts a JSON string back into a DeleteChatDataInput instance.
+        # Raises ValueError if JSON is invalid or missing required fields.
+
+        try:
+            data: Dict[str, Any] = json.loads(json_str)
+            return cls(**data)
+        except (json.JSONDecodeError, Exception) as e:
+            raise ValueError(f"Invalid JSON for DeleteChatDataInput: {e}")

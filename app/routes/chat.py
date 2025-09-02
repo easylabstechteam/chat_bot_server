@@ -2,45 +2,41 @@ from fastapi import APIRouter
 from repositories.redis_database.redis_repository import RedisRepository
 from repositories.google_genai_llm.google_genai_llm import GoogleGeminaiRepository
 from routes.validations.input.chat_input import ChatInput
-from services.converse_and_respond.converse_and_respond import converse_and_respond
+
+import datetime
 
 
 router = APIRouter()
 
 
 # {
-#   "ip_adress_timestamp": "123e4567-e89b-12d3-a456-426614174001", 
+#   "ip_adress_timestamp": "123e4567-e89b-12d3-a456-426614174001",
 #     "session_id": "123e4567-e89b-12d3-a456-426614174000",  # UUID generated when chat starts; backend must verify this session exists
 #     "message": "Hello, how are you?"                       # User's message; min/max length enforced
 # }
 
 
 # create a middleware that checks if the user id is the same
-@router.post("/chat", summary="Chat with the LLM and detect intent")
+@router.post("/user/chat", summary="Chat with the LLM and detect intent")
 async def chat(user_message: ChatInput):
-    
-    # input ->session_id: Optional[UUID] = Field(..., description="")
-    # role: str = Field(..., min_length=1, max_length=1000, description="")
-    # message: str = Field(..., min_length=1, max_length=1000, description="")
-    # intent: str = Field(..., min_length=1, max_length=1000, description="")
-    # timestamp: datetime = Field(..., description="")
-    
-    
-    # 1. uncomment below if you have just built your docker containers
-    # return await RedisRepository.create_chat_data(user_message)
-    
-    # once the server gives you a session id, replace that the below session id with  the one the server gave you: m
-#  {
-#     "session_id": "1de8c8a9-634b-4838-b875-e7a4e1cf2978",
-#     "role": "user",
-#     "message": "may be 12 in the arvo?",
-#     "intent": "booking",
-#     "timestamp": "2025-08-26T15:30:00Z"
-# }
-
-    # 2. 
-    response = await converse_and_respond(user_message)
-    return response
+    # create_response = await RedisRepository.create_chat_data(user_message)
+    # step 1 -- save user input into redis database
+    await RedisRepository.update_chat_data(user_message)
+    # sep 2 --- detect the user intent
+    intent_detected = await GoogleGeminaiRepository.intent_detector(
+        user_message=user_message
+    )
+    # step 3 --- get chat history
+    chat_history = await RedisRepository.get_chat_data(user_message.session_id)
+    llm_response = await GoogleGeminaiRepository.chatbot_continue_conversation(
+        session_id=user_message.session_id,
+        chat_history=chat_history,
+        questions=intent_detected.questions,
+    )
+    # step 4 --- save the llm response into the redis database
+    await RedisRepository.update_chat_data(llm_response)
+    # step 5 --- send response to  front end
+    return llm_response
 
 
 # Send message & get bot reply

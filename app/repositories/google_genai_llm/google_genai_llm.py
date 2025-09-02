@@ -52,6 +52,8 @@ from fastapi import HTTPException
 from langchain.prompts import PromptTemplate
 from langchain.schema import HumanMessage, SystemMessage, AIMessage
 
+from uuid import UUID
+
 # Import typing helpers to specify list types and union types
 from typing import List, Union
 
@@ -66,8 +68,7 @@ from utils.logger_setup import get_logger
 
 # Import Pydantic input models for validating user input in chat
 from repositories.validations.googleGeminiLLM.input.chat_bot_continue_input import (
-    ChatBotContinueConversationInput,
-    Questions,
+ChatHistory, Questions
 )
 
 # Import output models for validating responses from the chatbot
@@ -108,108 +109,101 @@ class GoogleGeminaiRepository:
     # - Continuing conversations using chat history and questions
 
     # -------- INTENT DETECTION METHOD --------
-
     @staticmethod
-    async def intent_detector(
-        user_message: IntentDetectorInput,  # User input message and optional prior intent
-    ) -> IntentDetectorOutput:  # Returns structured output with detected intent
-
-        # Detects the intent of a user's message using:
-        # - LangChain PromptTemplate (to structure the prompt)
-        # - Google Gemini (or any compatible LLM)
-
+    async def intent_detector(user_message: IntentDetectorInput):
         try:
-            # 1. Fetch known intents (this could be dynamic in a real system)
-            intentions_list: List[str] = await get_intentions_list()
+            # Grab the list of intents (could be fetched from DB)
+            intents = ["booking", "quote", "build lead times", "accounts", "unknown"]
 
-            # 2. Create a PromptTemplate for the LLM
-            #    - {intents} placeholder will be replaced with the list of intents
-            #    - {message} placeholder will be replaced with the user's message
-            template = """
-            You are an intent classification assistant.
-            Possible intents are: {intents}
+            # Prepare the system prompt
+            prompt = f"""You are an intent detector. Your task is to classify the following message into one of the possible intents:
+{intents}
 
-            Based on this user message:
-            "{message}"
+Please respond with the one that is closely matched to the list above. If nothing seems to match, then respond with "unknown".
+"""
+            system_prompt = prompt  # If using PromptTemplate, integrate here
 
-            Return only one intent from the list above. Do not explain.
-            If the intent does not exist in the list, then return "unknown".
-            """
-            prompt = PromptTemplate(
-                template=template,  # Raw template
-                input_variables=["intents", "message"],  # Placeholders to fill
-            )
-
-            # 3. Fill the template with actual data
-            system_prompt = prompt.format(
-                intents=", ".join(
-                    intentions_list
-                ),  # Convert list of intents to comma-separated string
-                message=user_message.message,  # Insert the actual user message
-            )
-
-            # 4. Build the list of messages for chat-based LLM
-            #    - SystemMessage: Instructions for LLM
-            #    - HumanMessage: Direct request for classification
-            messages = [
+            # Prepare messages for LLM
+            message = [
                 SystemMessage(content=system_prompt),
-                HumanMessage(
-                    content="Classify this message and return only the intent."
-                ),
+                HumanMessage(content=user_message.message),
             ]
 
-            # 5. Send messages to LLM asynchronously
-            #    - agenerate() expects a list of message sequences, so wrap in [ ... ]
-            result = await llm.agenerate([messages])
+            # Call LLM
+            response = await llm.agenerate(messages=[message])
+            detected_intent_text = response.generations[0][0].text.strip().lower()
 
-            # 6. Extract the detected intent from the LLM response
-            #    - If LLM returns structured output, use generations[0][0].text
-            #    - Otherwise, fallback to plain string
-            detected_intent = (
-                result.generations[0][0].text.strip().lower()
-                if hasattr(result, "generations")
-                else str(result).strip().lower()
-            )
-            
-            # get the questions based on the intent detected.
-            #TODO: get the questions from the postgresql database
-            #TODO; run up a logic to get the questions detected, only if the intention is difference from the original one
-            #TODO: this means that each session must have a current intention stored in the database and the postgresql must
-            # TODO: this means we need a uuid and session_id for tied to the uuid. the front-end must send the uuid and session_id and message
-            
-            
+            # Define questions
+            booking_questions = [
+                "What type of travel will you be booking (e.g. flight, hotel, rental car)?",
+                "Where is your destination and when do you plan to arrive?",
+                "How many people will be traveling with you?",
+                "Do you have any specific dates or time frames in mind for your trip?",
+                "Are there any special requirements or preferences for your booking (e.g. seat selection, room type)?",
+            ]
+            quote_questions = [
+                "What services or products are you interested in getting a quote for?",
+                "Can you provide more details about the project or scope of work?",
+                "What is your estimated budget for this project?",
+                "Are there any specific requirements or deadlines that need to be met?",
+                "Have you received quotes from other vendors on similar projects?",
+            ]
+            build_lead_times_questions = [
+                "How many hours do you typically spend on a task like this?",
+                "Can you walk me through the steps involved in completing this task?",
+                "What tools or resources do you currently use to manage your workflow?",
+                "Are there any bottlenecks or roadblocks that slow down your work process?",
+                "Have you considered implementing any new processes or systems to improve efficiency?",
+            ]
+            accounts_questions = [
+                "Can you provide more details about the disputed charge on your account?",
+                "How did you discover the error in your account?",
+                "What steps have you taken so far to resolve this issue?",
+                "Are there any supporting documents or receipts that can help us investigate further?",
+                "Would you like to proceed with a refund or credit to your account?",
+            ]
+            unknown_questions = []
 
-            # 7. Return the detected intent as a structured object
+            # Switch-style mapping using match/case
+            match detected_intent_text:
+                case "booking":
+                    intent_based_questions = booking_questions
+                case "quote":
+                    intent_based_questions = quote_questions
+                case "build lead times":
+                    intent_based_questions = build_lead_times_questions
+                case "accounts":
+                    intent_based_questions = accounts_questions
+                case "unknown":
+                    intent_based_questions = unknown_questions
+                case _:  # default case
+                    intent_based_questions = unknown_questions
+
+            # Return structured output
             return IntentDetectorOutput(
-                detected_intent=detected_intent, current_intent=user_message.intent
+                session_id=user_message.session_id,
+                detected_intent=detected_intent_text,
+                questions=intent_based_questions,
             )
 
         except Exception as e:
-            # 8. Handle any errors by raising an HTTP 500 exception
             raise HTTPException(
-                status_code=500, detail=f"Failed to detect intent: {str(e)}"
+                status_code=400,
+                detail=f"Issue(s) encountered when detecting user intent: {str(e)}",
             )
-
     # -------- CHATBOT CONTINUATION METHOD --------
 
+
+
     @staticmethod
-    async def chatbot_continue_conversation(
-        chat_history: ChatBotContinueConversationInput,  # Past messages in the chat
-        questions: Union[Questions, List[str]],  # List of questions or Questions object
+    async def chatbot_continue_conversation(session_id:UUID, 
+        chat_history: ChatHistory ,  # Past messages in the chat
+        questions: Questions ,  # List of questions or Questions object
     ) -> ChatBotContinueOutput:
 
         # Continue a chatbot conversation using LangChain LLM.
         # - Uses previous chat history and a list of questions
         # - Generates an AI response based on instructions
-
-        # -------------------- Step 0: Validate inputs --------------------
-        if not chat_history.messages:
-            raise HTTPException(
-                status_code=400, detail="chat_history.messages is empty"
-            )
-
-        if not questions:
-            raise HTTPException(status_code=400, detail="questions cannot be empty")
 
 
         # -------------------- Step 1: Define PromptTemplate --------------------
@@ -217,25 +211,25 @@ class GoogleGeminaiRepository:
         prompt_template = PromptTemplate(
             input_variables=["questions", "chat_history"],  # Placeholders to fill
             template="""
-You are an intelligent and helpful assistant. Your role is to interact with the user by asking specific questions that are provided from a PostgreSQL database, and by responding accurately and politely to any user questions. You will also be provided with previous chat history, and your responses should continue the conversation seamlessly from where it left off. Follow these rules strictly:
+            You are an intelligent and helpful assistant. Your role is to interact with the user by asking specific questions that are provided from a PostgreSQL database, and by responding accurately and politely to any user questions. You will also be provided with previous chat history, and your responses should continue the conversation seamlessly from where it left off. Follow these rules strictly:
 
-1. Always ask the questions provided below. Do not change the subject of the question.
-2. Keep the conversation strictly on topic. Do not introduce unrelated topics or personal opinions.
-3. Continue the conversation naturally from the last message without repeating or skipping questions unless the user indicates otherwise.
-4. Provide clear, concise, and informative answers to any user questions, but always relate them back to the topic of the current question.
-5. Do not speculate outside of the information provided by the user, the chat history, or the questions from the database.
-6. If the user’s question is unclear, ask clarifying questions without changing the subject.
-7. After answering a user question, continue with the next question from the database in order, unless instructed otherwise.
-8. Maintain a professional, friendly, and engaging tone at all times.
+            1. Always ask the questions provided below. Do not change the subject of the question.
+            2. Keep the conversation strictly on topic. Do not introduce unrelated topics or personal opinions.
+            3. Continue the conversation naturally from the last message without repeating or skipping questions unless the user indicates otherwise.
+            4. Provide clear, concise, and informative answers to any user questions, but always relate them back to the topic of the current question.
+            5. Do not speculate outside of the information provided by the user, the chat history, or the questions from the database.
+            6. If the user’s question is unclear, ask clarifying questions without changing the subject.
+            7. After answering a user question, continue with the next question from the database in order, unless instructed otherwise.
+            8. Maintain a professional, friendly, and engaging tone at all times.
 
-Questions to ask (do not modify these): 
-{questions}
+            Questions to ask (do not modify these): 
+            {questions}
 
-Previous chat history (use this to continue the conversation naturally): 
-{chat_history}
+            Previous chat history (use this to continue the conversation naturally): 
+            {chat_history}
 
-Now continue the conversation.
-""",
+            Now continue the conversation.
+            """,
         )
 
         # -------------------- Step 2: Format chat history --------------------
@@ -282,6 +276,5 @@ Now continue the conversation.
             message=response_text,  # AI-generated message
             role="assistant",  # The role of the message
             timestamp=datetime.utcnow(),  # UTC timestamp
-            intent="same as user",  # Could be filled later
-            session_id=str(chat_history.session_id),  # Chat session identifier
+            session_id=session_id
         )
