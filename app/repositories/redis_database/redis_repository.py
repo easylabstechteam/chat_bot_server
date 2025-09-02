@@ -60,29 +60,29 @@ class RedisRepository:
 
     # ------------------- CREATE CHAT DATA -------------------
     @staticmethod
-    async def create_chat_data(chat_data: CreateChatDataInput) -> CreateChatDataOutput:
+    async def create_chat_data(user_message: CreateChatDataInput) -> CreateChatDataOutput:
         
         # Create a new chat session in Redis with a unique session ID.
         # Stores the first user message in the session.
       
         key = str(uuid4())  # Generate a unique session ID
-        chat_data.session_id = key  # Assign session ID to the input object
+        user_message.session_id = key  # Assign session ID to the input object
         logger.info(f"Creating new chat session with ID: {key}")
 
         try:
             # Create the first message object
             message_obj = CreateChatMessage(
-                session_id=chat_data.session_id,
+                session_id=user_message.session_id,
                 role="user",
-                timestamp=datetime.utcnow(),
-                message=chat_data.message,
+                timestamp=str(datetime.utcnow()),
+                message=user_message.message,
             )
 
             # Prepare Redis payload and serialize to JSON
             redis_payload = RedisSetDataInput(
-                session_id=chat_data.session_id,
+                session_id=user_message.session_id,
                 messages=[message_obj],
-            ).model_dump_json()
+            ).to_json()
 
             # Save session in Redis
             result: bool = await redis_client.set(key, redis_payload)

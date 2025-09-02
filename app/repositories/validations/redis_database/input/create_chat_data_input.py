@@ -64,7 +64,7 @@ class CreateChatDataInput(BaseModel):
     # This is similar to CreateChatMessage, used for API input validation.
 
     session_id: Optional[UUID] = Field(
-        ..., description="Unique identifier for the chat session."
+        description="Unique identifier for the chat session."
     )
 
     role: str = Field(
@@ -74,7 +74,7 @@ class CreateChatDataInput(BaseModel):
         description="Role of the sender (e.g., 'user' or 'assistant').",
     )
 
-    timestamp: str = Field(..., description="Time when the message was sent.")
+    timestamp: datetime = Field(..., description="Time when the message was sent.")
 
     message: str = Field(
         ...,
