@@ -3,11 +3,17 @@ from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
 import uuid
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.orm import declarative_base
 
-# Base class for all models
+DATABASE_URL = "postgresql+asyncpg://chatbot_user:chatbot_pass@postgres:5432/chatbot_db"
+engine = create_async_engine(DATABASE_URL, echo=True)
+
 Base = declarative_base()
 
-
+async def init_models():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 # ------------------- CHAT USERS -------------------
 class ChatUser(Base):
     # Represents a visitor chatting with the bot.
@@ -60,7 +66,7 @@ class Session(Base):
     chat_user_id = Column(UUID(as_uuid=True), ForeignKey("chat_users.id", ondelete="CASCADE"), nullable=False)
     started_at = Column(DateTime, default=datetime.utcnow)  # Session start time
     ended_at = Column(DateTime, nullable=True)  # Optional end time
-    metadata = Column(JSON, nullable=True)  # Extra info about session
+    session_metadata = Column(JSON, nullable=True)  # Extra info about session
 
     chat_user = relationship("ChatUser", back_populates="sessions")
     messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
@@ -131,7 +137,7 @@ class Question(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     text = Column(Text, nullable=False)  # Question text
     intent_id = Column(UUID(as_uuid=True), ForeignKey("intents.id", ondelete="CASCADE"), nullable=False)
-    metadata = Column(JSON, nullable=True)
+    question_metadata = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     intent = relationship("Intent", back_populates="questions")
@@ -146,14 +152,14 @@ class SystemPrompt(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     text = Column(Text, nullable=False)  # Prompt content
     intent_id = Column(UUID(as_uuid=True), ForeignKey("intents.id", ondelete="CASCADE"), nullable=False)
-    metadata = Column(JSON, nullable=True)
+    system_metadata = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     intent = relationship("Intent", back_populates="system_prompts")
 
 
-# ------------------- ANALYTICS METRICS -------------------
+# ------------------- ANALYTICS METRICS ------------------- 
 class AnalyticsMetric(Base):
     # Defines the type of metric we are tracking.
 
@@ -215,7 +221,7 @@ class Embedding(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     message_id = Column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=True)
     vector = Column(JSON, nullable=False)  # Embedding vector
-    metadata = Column(JSON, nullable=True)
+    embedding_metadata = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     message = relationship("Message", back_populates="embeddings")
@@ -231,7 +237,7 @@ class PromptHistory(Base):
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     message_id = Column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=True)
     prompt_text = Column(Text, nullable=False)
-    metadata = Column(JSON, nullable=True)
+    prompt_history_metadata = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     session = relationship("Session", back_populates="prompt_histories")
@@ -268,7 +274,7 @@ class HighPotentialLead(Base):
     intent_id = Column(UUID(as_uuid=True), ForeignKey("intents.id", ondelete="SET NULL"), nullable=True)
     lead_score = Column(Float, default=0.0)  # Score indicating likelihood of lead
     status = Column(String(50), default="new")  # new, notified, contacted
-    metadata = Column(JSON, nullable=True)  # Extra info like email sent, tags
+    high_potential_lead_metadata = Column(JSON, nullable=True)  # Extra info like email sent, tags
     detected_at = Column(DateTime, default=datetime.utcnow)
 
     chat_user = relationship("ChatUser", back_populates="high_potential_leads")
@@ -287,7 +293,7 @@ class NoPotentialLead(Base):
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     message_ids = Column(JSON, nullable=True)
     intent_id = Column(UUID(as_uuid=True), ForeignKey("intents.id", ondelete="SET NULL"), nullable=True)
-    metadata = Column(JSON, nullable=True)  # Optional notes or reasons
+    no_potential_lead_metadata = Column(JSON, nullable=True)  # Optional notes or reasons
     evaluated_at = Column(DateTime, default=datetime.utcnow)
 
     chat_user = relationship("ChatUser", back_populates="no_potential_leads")
