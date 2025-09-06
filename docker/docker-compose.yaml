@@ -11,11 +11,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5433:5432"
     networks:
       - chatbot_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chatbot_user"]
+      test: ["CMD-SHELL", "pg_isready -U chatbot_user -d chatbot_db"]
       interval: 5s
       timeout: 5s
       retries: 5

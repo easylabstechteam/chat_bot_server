@@ -5,7 +5,6 @@ sqlalchemy
 asyncpg
 alembic
 httpx
-psycopg2-binary
 
 # Redis (async support)
 redis[async]
@@ -14,9 +13,9 @@ redis[async]
 langchain
 langchain-core
 langchain-community
-langchain-google-genai   # Add Gemini support
-langchain-openai         # (keep only if you also want OpenAI models)
+langchain-google-genai
+langchain-openai
 langchainhub
 
 # Google Generative AI SDK
-google-generativeai      #  Required for Gemini
+google-generativeai

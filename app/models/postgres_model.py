@@ -1,268 +1,295 @@
-# ------------------- IMPORTS -------------------
-from sqlalchemy import (
-    Column,
-    String,
-    Text,
-    Integer,
-    Boolean,
-    DateTime,
-    ForeignKey,
-    CheckConstraint,
-    func,
-    UniqueConstraint,
-)
-from sqlalchemy.dialects.postgresql import UUID, ARRAY  # Use PostgreSQL-specific types
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text, Float, JSON, Index
 from sqlalchemy.orm import relationship, declarative_base
-import uuid  # For generating UUIDs
+from sqlalchemy.dialects.postgresql import UUID
+from datetime import datetime
+import uuid
 
-# ------------------- BASE DECLARATIVE -------------------
-Base = declarative_base()  # Base class for all SQLAlchemy models
+# Base class for all models
+Base = declarative_base()
 
 
-# ------------------- INTENT MODEL -------------------
+# ------------------- CHAT USERS -------------------
+class ChatUser(Base):
+    # Represents a visitor chatting with the bot.
+    # Can have multiple sessions, messages, contexts, feedbacks, and lead status.
+
+    __tablename__ = "chat_users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)  # Unique user ID
+    ip_address = Column(String(45), nullable=True)  # Optional IP address
+    name = Column(String(100), nullable=False)  # User's name
+    email = Column(String(255), unique=True, nullable=True)  # Optional email
+    created_at = Column(DateTime, default=datetime.utcnow)  # Creation timestamp
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)  # Last update timestamp
+
+    # Relationships to access related data easily
+    sessions = relationship("Session", back_populates="chat_user", cascade="all, delete-orphan")
+    messages = relationship("Message", back_populates="chat_user", cascade="all, delete-orphan")
+    analytics_records = relationship("AnalyticsRecord", back_populates="chat_user", cascade="all, delete-orphan")
+    contexts = relationship("ConversationContext", back_populates="chat_user", cascade="all, delete-orphan")
+    feedbacks = relationship("Feedback", back_populates="chat_user", cascade="all, delete-orphan")
+    high_potential_leads = relationship("HighPotentialLead", back_populates="chat_user", cascade="all, delete-orphan")
+    no_potential_leads = relationship("NoPotentialLead", back_populates="chat_user", cascade="all, delete-orphan")
+
+
+Index('idx_chat_users_email', ChatUser.email)  # Fast lookup by email
+
+
+# ------------------- ADMIN USERS -------------------
+class AdminUser(Base):
+    # Represents admin users who can manage the system.
+
+    __tablename__ = "admin_users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    username = Column(String(100), unique=True, nullable=False)  # Login name
+    password_hash = Column(String(255), nullable=False)  # Secure password hash
+    role = Column(String(50), default="admin")  # Role type
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ------------------- SESSIONS -------------------
+class Session(Base):
+    # Represents a single conversation with a user.
+    # Contains messages, context, analytics, and prompt history.
+
+    __tablename__ = "sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_user_id = Column(UUID(as_uuid=True), ForeignKey("chat_users.id", ondelete="CASCADE"), nullable=False)
+    started_at = Column(DateTime, default=datetime.utcnow)  # Session start time
+    ended_at = Column(DateTime, nullable=True)  # Optional end time
+    metadata = Column(JSON, nullable=True)  # Extra info about session
+
+    chat_user = relationship("ChatUser", back_populates="sessions")
+    messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
+    analytics_records = relationship("AnalyticsRecord", back_populates="session", cascade="all, delete-orphan")
+    contexts = relationship("ConversationContext", back_populates="session", cascade="all, delete-orphan")
+    prompt_histories = relationship("PromptHistory", back_populates="session", cascade="all, delete-orphan")
+
+
+Index('idx_sessions_user', Session.chat_user_id)  # Fast lookup of sessions by user
+
+
+# ------------------- INTENTS -------------------
 class Intent(Base):
-    __tablename__ = "intents"  # Table name in the database
-    id = Column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        unique=True,
-        nullable=False,
-    )  # Primary key, auto-generated UUID
-    name = Column(Text, unique=True, nullable=False, index=True)  # Name of the intent
+    # Represents the purpose of a message or question (e.g., "greeting", "purchase inquiry").
+
+    __tablename__ = "intents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), nullable=False, unique=True)  # Name of the intent
     description = Column(Text, nullable=True)  # Optional description
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )  # Creation timestamp
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Relationship to forms; allows reverse lookup from Intent to its Forms
-    forms = relationship(
-        "Form",
-        back_populates="intent",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
+    messages = relationship("Message", back_populates="intent")
+    questions = relationship("Question", back_populates="intent")
+    system_prompts = relationship("SystemPrompt", back_populates="intent")
+    analytics_records = relationship("AnalyticsRecord", back_populates="intent")
+    high_potential_leads = relationship("HighPotentialLead", back_populates="intent")
+    no_potential_leads = relationship("NoPotentialLead", back_populates="intent")
 
 
-# ------------------- FORM MODEL -------------------
-class Form(Base):
-    __tablename__ = "forms"
-    id = Column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        unique=True,
-        nullable=False,
-    )
-    intent_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("intents.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    title = Column(Text, nullable=False)  # Form title
-    description = Column(Text, nullable=True)  # Optional description
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-    # Relationships
-    intent = relationship("Intent", back_populates="forms")  # Connect to parent intent
-    questions = relationship(
-        "Question",
-        back_populates="form",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
+Index('idx_intents_name', Intent.name)  # Fast lookup by intent name
 
 
-# ------------------- QUESTION MODEL -------------------
+# ------------------- MESSAGES -------------------
+class Message(Base):
+    # Represents a single message in a session.
+    # Can be from the user, bot, or admin.
+
+    __tablename__ = "messages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    chat_user_id = Column(UUID(as_uuid=True), ForeignKey("chat_users.id", ondelete="SET NULL"), nullable=True)  # Null for bot messages
+    role = Column(String(10), nullable=False)  # "user", "bot", or "admin"
+    intent_id = Column(UUID(as_uuid=True), ForeignKey("intents.id", ondelete="SET NULL"), nullable=True)
+    content = Column(Text, nullable=False)  # Message text
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    session = relationship("Session", back_populates="messages")
+    chat_user = relationship("ChatUser", back_populates="messages")
+    intent = relationship("Intent", back_populates="messages")
+    analytics_records = relationship("AnalyticsRecord", back_populates="message", cascade="all, delete-orphan")
+    embeddings = relationship("Embedding", back_populates="message", cascade="all, delete-orphan")
+    prompt_histories = relationship("PromptHistory", back_populates="message", cascade="all, delete-orphan")
+    feedbacks = relationship("Feedback", back_populates="message", cascade="all, delete-orphan")
+
+
+Index('idx_messages_session', Message.session_id)
+Index('idx_messages_user', Message.chat_user_id)
+
+
+# ------------------- QUESTIONS -------------------
 class Question(Base):
+    # Predefined questions the bot asks, linked to intents.
+
     __tablename__ = "questions"
-    id = Column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        unique=True,
-        nullable=False,
-    )
-    form_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("forms.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    question_text = Column(Text, nullable=False)  # The actual question
-    input_type = Column(
-        String(20), nullable=False
-    )  # Type of input (e.g., text, choice)
-    options = Column(ARRAY(Text), nullable=True)  # Options if input_type is 'choice'
-    order_index = Column(Integer, nullable=False)  # Ordering of the questions
-    is_required = Column(
-        Boolean, nullable=False, default=True
-    )  # Is this question mandatory?
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
 
-    form = relationship("Form", back_populates="questions")  # Link back to form
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    text = Column(Text, nullable=False)  # Question text
+    intent_id = Column(UUID(as_uuid=True), ForeignKey("intents.id", ondelete="CASCADE"), nullable=False)
+    metadata = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    __table_args__ = (
-        CheckConstraint(
-            "order_index > 0", name="check_order_index_positive"
-        ),  # Validate positive order_index
-    )
+    intent = relationship("Intent", back_populates="questions")
 
 
-# ------------------- CHAT SESSION MODEL -------------------
-class ChatSession(Base):
-    __tablename__ = "chat_sessions"
-    id = Column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        unique=True,
-        nullable=False,
-    )
-    session_token = Column(
-        String(128), unique=True, nullable=False, index=True
-    )  # Token for session
-    user_id = Column(UUID(as_uuid=True), nullable=True, index=True)  # Optional user ID
-    intent_id = Column(
-        UUID(as_uuid=True), ForeignKey("intents.id"), nullable=True, index=True
-    )  # Optional intent
-    status = Column(
-        String(20), nullable=False, default="active"
-    )  # Active, completed, etc.
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
+# ------------------- SYSTEM PROMPTS -------------------
+class SystemPrompt(Base):
+    # Prompts to guide the LLM based on intent.
 
-    # Relationships
-    intent = relationship("Intent")  # Associated intent
-    messages = relationship(
-        "ChatMessage",
-        back_populates="session",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
-    answers = relationship(
-        "Answer",
-        back_populates="session",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
-    prompts = relationship(
-        "LLMPrompt",
-        back_populates="session",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
+    __tablename__ = "system_prompts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    text = Column(Text, nullable=False)  # Prompt content
+    intent_id = Column(UUID(as_uuid=True), ForeignKey("intents.id", ondelete="CASCADE"), nullable=False)
+    metadata = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    intent = relationship("Intent", back_populates="system_prompts")
 
 
-# ------------------- CHAT MESSAGE MODEL -------------------
-class ChatMessage(Base):
-    __tablename__ = "chat_messages"
-    id = Column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        unique=True,
-        nullable=False,
-    )
-    session_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    role = Column(String(20), nullable=False)  # 'user' or 'assistant'
-    message = Column(Text, nullable=False)  # Chat message content
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+# ------------------- ANALYTICS METRICS -------------------
+class AnalyticsMetric(Base):
+    # Defines the type of metric we are tracking.
 
-    session = relationship(
-        "ChatSession", back_populates="messages"
-    )  # Link to parent chat session
+    __tablename__ = "analytics_metrics"
 
-    __table_args__ = (
-        CheckConstraint(
-            "role IN ('user', 'assistant')", name="check_role_valid"
-        ),  # Validate role
-    )
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), nullable=False)  # Metric name
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    analytics_records = relationship("AnalyticsRecord", back_populates="analytics_metric", cascade="all, delete-orphan")
 
 
-# ------------------- ANSWER MODEL -------------------
-class Answer(Base):
-    __tablename__ = "answers"
-    id = Column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        unique=True,
-        nullable=False,
-    )
-    session_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    question_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("questions.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    answer = Column(Text, nullable=True)  # The answer content
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+# ------------------- ANALYTICS RECORDS -------------------
+class AnalyticsRecord(Base):
+    # Stores values for metrics (e.g., messages sent, response time).
 
-    # Relationships
-    session = relationship(
-        "ChatSession", back_populates="answers"
-    )  # Link back to session
-    question = relationship("Question")  # Link back to question
+    __tablename__ = "analytics_records"
 
-    __table_args__ = (
-        UniqueConstraint(
-            "session_id", "question_id", name="uix_session_question"
-        ),  # Prevent duplicate answers
-    )
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    analytics_metric_id = Column(UUID(as_uuid=True), ForeignKey("analytics_metrics.id", ondelete="CASCADE"), nullable=False)
+    chat_user_id = Column(UUID(as_uuid=True), ForeignKey("chat_users.id", ondelete="SET NULL"), nullable=True)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
+    intent_id = Column(UUID(as_uuid=True), ForeignKey("intents.id", ondelete="SET NULL"), nullable=True)
+    message_id = Column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    metric_value = Column(Float, nullable=False)  # Numeric value
+    recorded_at = Column(DateTime, default=datetime.utcnow)
+
+    analytics_metric = relationship("AnalyticsMetric", back_populates="analytics_records")
+    chat_user = relationship("ChatUser", back_populates="analytics_records")
+    session = relationship("Session", back_populates="analytics_records")
+    intent = relationship("Intent", back_populates="analytics_records")
+    message = relationship("Message", back_populates="analytics_records")
+
+# ------------------- CONVERSATION CONTEXT -------------------
+class ConversationContext(Base):
+    # Stores session-level memory or context for multi-turn conversations.
+
+    __tablename__ = "conversation_contexts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    chat_user_id = Column(UUID(as_uuid=True), ForeignKey("chat_users.id", ondelete="CASCADE"), nullable=False)
+    key = Column(String(100), nullable=False)  # Context key name
+    value = Column(Text, nullable=False)  # Context value
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    session = relationship("Session", back_populates="contexts")
+    chat_user = relationship("ChatUser", back_populates="contexts")
 
 
-# ------------------- LLM PROMPT LOG MODEL -------------------
-class LLMPrompt(Base):
-    __tablename__ = "llm_prompts"
-    id = Column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        unique=True,
-        nullable=False,
-    )
-    session_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    prompt = Column(Text, nullable=False)  # Prompt sent to LLM
-    response = Column(Text, nullable=False)  # Response from LLM
-    tokens_used = Column(Integer, nullable=True)  # Optional token usage tracking
-    model_version = Column(String(50), nullable=True)  # Optional model version info
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+# ------------------- EMBEDDINGS -------------------
+class Embedding(Base):
+    
+    # Stores vector embeddings for messages (for semantic search or RAG).
 
-    session = relationship(
-        "ChatSession", back_populates="prompts"
-    )  # Link to parent session
+    __tablename__ = "embeddings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    message_id = Column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=True)
+    vector = Column(JSON, nullable=False)  # Embedding vector
+    metadata = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    message = relationship("Message", back_populates="embeddings")
+
+
+# ------------------- PROMPT HISTORY -------------------
+class PromptHistory(Base):
+    # Stores prompts sent to the LLM for traceability.
+
+    __tablename__ = "prompt_histories"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    message_id = Column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=True)
+    prompt_text = Column(Text, nullable=False)
+    metadata = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    session = relationship("Session", back_populates="prompt_histories")
+    message = relationship("Message", back_populates="prompt_histories")
+
+
+# ------------------- FEEDBACK -------------------
+class Feedback(Base):
+    # Stores user feedback on messages or sessions.
+
+    __tablename__ = "feedbacks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_user_id = Column(UUID(as_uuid=True), ForeignKey("chat_users.id", ondelete="CASCADE"), nullable=False)
+    message_id = Column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    rating = Column(Integer, nullable=True)  # e.g., 1-5
+    comment = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    chat_user = relationship("ChatUser", back_populates="feedbacks")
+    message = relationship("Message", back_populates="feedbacks")
+
+
+# ------------------- HIGH POTENTIAL LEADS -------------------
+class HighPotentialLead(Base):
+    # Stores users flagged as high-potential leads by the LLM or rules.
+
+    __tablename__ = "high_potential_leads"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_user_id = Column(UUID(as_uuid=True), ForeignKey("chat_users.id", ondelete="CASCADE"), nullable=False)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    message_ids = Column(JSON, nullable=True)  # List of message IDs contributing to this lead
+    intent_id = Column(UUID(as_uuid=True), ForeignKey("intents.id", ondelete="SET NULL"), nullable=True)
+    lead_score = Column(Float, default=0.0)  # Score indicating likelihood of lead
+    status = Column(String(50), default="new")  # new, notified, contacted
+    metadata = Column(JSON, nullable=True)  # Extra info like email sent, tags
+    detected_at = Column(DateTime, default=datetime.utcnow)
+
+    chat_user = relationship("ChatUser", back_populates="high_potential_leads")
+    session = relationship("Session", back_populates="high_potential_leads")
+    intent = relationship("Intent", back_populates="high_potential_leads")
+
+
+# ------------------- NO POTENTIAL LEADS -------------------
+class NoPotentialLead(Base):
+    # Stores users evaluated but NOT flagged as high-potential leads.
+
+    __tablename__ = "no_potential_leads"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_user_id = Column(UUID(as_uuid=True), ForeignKey("chat_users.id", ondelete="CASCADE"), nullable=False)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    message_ids = Column(JSON, nullable=True)
+    intent_id = Column(UUID(as_uuid=True), ForeignKey("intents.id", ondelete="SET NULL"), nullable=True)
+    metadata = Column(JSON, nullable=True)  # Optional notes or reasons
+    evaluated_at = Column(DateTime, default=datetime.utcnow)
+
+    chat_user = relationship("ChatUser", back_populates="no_potential_leads")
+    session = relationship("Session", back_populates="no_potential_leads")
+    intent = relationship("Intent", back_populates="no_potential_leads")

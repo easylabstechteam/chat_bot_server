@@ -32,7 +32,7 @@ router = APIRouter()
 
 @router.post("/user/chat", summary="Chat with the LLM and detect intent")
 async def chat(user_message: ChatInput):
- 
+
     # Handles a single user message in an ongoing chat session.
 
     # Steps:
@@ -42,7 +42,6 @@ async def chat(user_message: ChatInput):
     # 4. Generate the LLM response based on chat history and detected intent.
     # 5. Save the LLM response to Redis.
     # 6. Return the LLM response to the frontend.
-   
 
     # Step 1: Save the incoming user message in Redis
     await RedisRepository.update_chat_data(user_message)
@@ -112,7 +111,7 @@ async def delete_chat(input: DeleteChatDataInput):
 
 @router.get("/", summary="Home endpoint")
 async def home():
-    """
-    Simple home endpoint to verify that the service is running.
-    """
+
+    # Simple home endpoint to verify that the service is running.
+
     return {"msg": "home"}
