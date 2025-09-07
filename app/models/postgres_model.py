@@ -1,19 +1,40 @@
+# Import core SQLAlchemy components for defining database models
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text, Float, JSON, Index
 from sqlalchemy.orm import relationship, declarative_base
+
+# Import PostgreSQL-specific UUID type for unique identifiers
 from sqlalchemy.dialects.postgresql import UUID
+
+# Standard Python modules for handling dates and generating unique IDs
 from datetime import datetime
 import uuid
+
+# Import async engine creation for non-blocking database operations
 from sqlalchemy.ext.asyncio import create_async_engine
+
+# Import declarative_base to create the base class for all models
 from sqlalchemy.orm import declarative_base
 
-DATABASE_URL = "postgresql+asyncpg://chatbot_user:chatbot_pass@postgres:5432/chatbot_db"
+# Import your database URL from your configuration
+from core.config import DATABASE_URL
+
+# Create an asynchronous engine to connect to the database
+# echo=True logs all SQL statements to the console (useful for debugging)
 engine = create_async_engine(DATABASE_URL, echo=True)
 
+# Base class for all database models
+# Every model you define will inherit from this, so SQLAlchemy knows it's part of the database
 Base = declarative_base()
 
+# Function to initialize all database tables
+# This will create all tables in PostgreSQL if they don't already exist
 async def init_models():
+    # Open a connection to the database
     async with engine.begin() as conn:
+        # Create all tables defined by models inheriting from Base
         await conn.run_sync(Base.metadata.create_all)
+
+
 # ------------------- CHAT USERS -------------------
 class ChatUser(Base):
     # Represents a visitor chatting with the bot.

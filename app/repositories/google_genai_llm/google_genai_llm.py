@@ -100,40 +100,47 @@ async def get_intentions_list() -> List[str]:
 
 # ------------------- LLM REPOSITORY -------------------
 
-
 class GoogleGeminaiRepository:
-
-    # Repository class for interacting with a LangChain LLM in a chatbot context.
-    # Handles:
-    # - Detecting user intent
-    # - Continuing conversations using chat history and questions
+    """
+    This class connects to a Large Language Model (LLM) (via LangChain)
+    and is responsible for two main things in the chatbot:
+    1. Detecting user intent (what the user wants)
+    2. Continuing the chatbot conversation using previous chat history and questions
+    """
 
     # -------- INTENT DETECTION METHOD --------
     @staticmethod
     async def intent_detector(user_message: IntentDetectorInput):
+        """
+        This method detects the user's intent based on their message.
+        It uses a predefined list of intents and an LLM to decide which one matches best.
+        """
+
         try:
-            # Grab the list of intents (could be fetched from DB)
+            # Step 1: Define possible intents that the chatbot understands
             intents = ["booking", "quote", "build lead times", "accounts", "unknown"]
 
-            # Prepare the system prompt
+            # Step 2: Prepare the system prompt that tells the LLM what to do
+            # It explains the task: classify the user message into one of the intents
             prompt = f"""You are an intent detector. Your task is to classify the following message into one of the possible intents:
 {intents}
 
 Please respond with the one that is closely matched to the list above. If nothing seems to match, then respond with "unknown".
 """
-            system_prompt = prompt  # If using PromptTemplate, integrate here
+            system_prompt = prompt  # (This could also be created using PromptTemplate if needed)
 
-            # Prepare messages for LLM
+            # Step 3: Create the input message for the LLM
+            # It includes the system instructions and the actual user message
             message = [
                 SystemMessage(content=system_prompt),
                 HumanMessage(content=user_message.message),
             ]
 
-            # Call LLM
+            # Step 4: Call the LLM to classify the intent
             response = await llm.agenerate(messages=[message])
             detected_intent_text = response.generations[0][0].text.strip().lower()
 
-            # Define questions
+            # Step 5: Define follow-up questions for each intent
             booking_questions = [
                 "What type of travel will you be booking (e.g. flight, hotel, rental car)?",
                 "Where is your destination and when do you plan to arrive?",
@@ -162,9 +169,9 @@ Please respond with the one that is closely matched to the list above. If nothin
                 "Are there any supporting documents or receipts that can help us investigate further?",
                 "Would you like to proceed with a refund or credit to your account?",
             ]
-            unknown_questions = []
+            unknown_questions = []  # No follow-up questions for unknown intent
 
-            # Switch-style mapping using match/case
+            # Step 6: Match the detected intent to its related questions
             match detected_intent_text:
                 case "booking":
                     intent_based_questions = booking_questions
@@ -176,10 +183,10 @@ Please respond with the one that is closely matched to the list above. If nothin
                     intent_based_questions = accounts_questions
                 case "unknown":
                     intent_based_questions = unknown_questions
-                case _:  # default case
+                case _:  # Default case: if LLM returns something unexpected
                     intent_based_questions = unknown_questions
 
-            # Return structured output
+            # Step 7: Return a structured response with detected intent and follow-up questions
             return IntentDetectorOutput(
                 session_id=user_message.session_id,
                 detected_intent=detected_intent_text,
@@ -187,29 +194,28 @@ Please respond with the one that is closely matched to the list above. If nothin
             )
 
         except Exception as e:
+            # If anything goes wrong, return an HTTP 400 error
             raise HTTPException(
                 status_code=400,
                 detail=f"Issue(s) encountered when detecting user intent: {str(e)}",
             )
+
     # -------- CHATBOT CONTINUATION METHOD --------
-
-
-
     @staticmethod
-    async def chatbot_continue_conversation(session_id:UUID, 
-        chat_history: ChatHistory ,  # Past messages in the chat
-        questions: Questions ,  # List of questions or Questions object
+    async def chatbot_continue_conversation(
+        session_id: UUID, 
+        chat_history: ChatHistory,  # Past messages in the chat
+        questions: Questions,       # List of questions or Questions object
     ) -> ChatBotContinueOutput:
-
-        # Continue a chatbot conversation using LangChain LLM.
-        # - Uses previous chat history and a list of questions
-        # - Generates an AI response based on instructions
-
+        """
+        Continues a chatbot conversation using a LangChain LLM.
+        - Uses past chat history and a list of questions to generate a natural response.
+        """
 
         # -------------------- Step 1: Define PromptTemplate --------------------
-        # Template instructs the LLM on how to respond
+        # The template instructs the LLM on exactly how to behave and what rules to follow.
         prompt_template = PromptTemplate(
-            input_variables=["questions", "chat_history"],  # Placeholders to fill
+            input_variables=["questions", "chat_history"],  # Variables to replace in the template
             template="""
             You are an intelligent and helpful assistant. Your role is to interact with the user by asking specific questions that are provided from a PostgreSQL database, and by responding accurately and politely to any user questions. You will also be provided with previous chat history, and your responses should continue the conversation seamlessly from where it left off. Follow these rules strictly:
 
@@ -233,23 +239,26 @@ Please respond with the one that is closely matched to the list above. If nothin
         )
 
         # -------------------- Step 2: Format chat history --------------------
+        # Convert chat history into a readable string for the LLM
         formatted_chat_history = [
             f"{msg.role}: {msg.message}" for msg in chat_history.messages
         ]
         formatted_chat_history_str = "\n".join(formatted_chat_history)
 
         # -------------------- Step 2b: Format questions --------------------
+        # Questions might come as a custom Questions object or just a list of strings
         if isinstance(questions, Questions):
             formatted_questions = "\n".join(questions.questions)
         else:
             formatted_questions = "\n".join(questions)
 
-        # Fill template placeholders with actual chat history and questions
+        # Fill the template with real chat history and questions
         system_prompt = prompt_template.format(
             questions=formatted_questions, chat_history=formatted_chat_history_str
         )
 
         # -------------------- Step 3: Build LangChain messages --------------------
+        # The LLM expects a list of messages: system instructions, then user/assistant chat turns
         messages = [SystemMessage(content=system_prompt)]
         for msg in chat_history.messages:
             if msg.role == "user":
@@ -257,24 +266,27 @@ Please respond with the one that is closely matched to the list above. If nothin
             elif msg.role == "assistant":
                 messages.append(AIMessage(content=msg.message))
             else:
-                # Skip unknown roles and log a warning
+                # If a role is unknown, skip it and log a warning
                 logger.warning(f"Skipping unknown role: {msg.role}")
 
         # -------------------- Step 4: Call the LLM --------------------
         try:
+            # Ask the LLM to generate the next part of the conversation
             response = await llm.agenerate(messages=[messages])
             response_text = response.generations[0][0].text
         except Exception as e:
+            # If the LLM call fails, log the error and raise an HTTP 500 error
             logger.exception("LLM generation failed")
             raise HTTPException(
                 status_code=500, detail=f"LLM generation failed: {str(e)}"
             )
 
         # -------------------- Step 5: Return response --------------------
+        # Send the generated message back to the chatbot system
         logger.info("LLM response generated successfully")
         return ChatBotContinueOutput(
-            message=response_text,  # AI-generated message
-            role="assistant",  # The role of the message
-            timestamp=datetime.utcnow(),  # UTC timestamp
-            session_id=session_id
+            message=response_text,         # The AI's generated message
+            role="assistant",              # The AI's role in the conversation
+            timestamp=datetime.utcnow(),   # When this response was generated
+            session_id=session_id          # The chat session ID
         )

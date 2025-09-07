@@ -1,4 +1,4 @@
-# ------------------- IMPORTS -------------------
+# ------------------- IMPORTS ------------------- #
 from fastapi import APIRouter
 from repositories.redis_database.redis_repository import RedisRepository
 from repositories.google_genai_llm.google_genai_llm import GoogleGeminaiRepository
@@ -16,6 +16,8 @@ from repositories.validations.redis_database.input.update_chat_data_input import
     UpdateChatDataInput,
 )
 
+from services.chat_converse_continue import chat_converse_continue
+
 # Create a new FastAPI router for chat-related endpoints
 router = APIRouter()
 
@@ -32,43 +34,10 @@ router = APIRouter()
 
 @router.post("/user/chat", summary="Chat with the LLM and detect intent")
 async def chat(user_message: ChatInput):
-
-    # Handles a single user message in an ongoing chat session.
-
-    # Steps:
-    # 1. Save the user's message to Redis.
-    # 2. Detect the user's intent using Google GeminAI.
-    # 3. Retrieve the chat history for context.
-    # 4. Generate the LLM response based on chat history and detected intent.
-    # 5. Save the LLM response to Redis.
-    # 6. Return the LLM response to the frontend.
-
-    # Step 1: Save the incoming user message in Redis
-    await RedisRepository.update_chat_data(user_message)
-
-    # Step 2: Detect the user's intent using the AI service
-    intent_detected = await GoogleGeminaiRepository.intent_detector(
-        user_message=user_message
-    )
-
-    # Step 3: Retrieve previous chat messages for context
-    chat_history = await RedisRepository.get_chat_data(user_message.session_id)
-
-    # Step 4: Continue conversation with the LLM using context and detected intent
-    llm_response = await GoogleGeminaiRepository.chatbot_continue_conversation(
-        session_id=user_message.session_id,
-        chat_history=chat_history,
-        questions=intent_detected.questions,
-    )
-
-    # Step 5: Save the LLM's response to Redis
-    await RedisRepository.update_chat_data(llm_response)
-
-    # Step 6: Return the AI response to the frontend
-    return llm_response
+    return await chat_converse_continue(user_message)
 
 
-@router.post("/chats/start", summary="Start a new chat session")
+@router.post("/create-session", summary="Start a new chat session")
 async def initiate_chat(user_message: ChatInput):
 
     # Initiates a new chat session.
@@ -81,7 +50,7 @@ async def initiate_chat(user_message: ChatInput):
     return await RedisRepository.create_chat_data(user_message=user_message)
 
 
-@router.post("/chats/get/messages", summary="Retrieve chat history")
+@router.post("/chat-history", summary="Retrieve chat history")
 async def get_chat_messages(input: GetChatDataInput):
 
     # Retrieves all messages for a given chat session.
@@ -95,7 +64,7 @@ async def get_chat_messages(input: GetChatDataInput):
     return await RedisRepository.get_chat_data(session_id=input.session_id)
 
 
-@router.delete("/chats/delete", summary="Delete a chat session")
+@router.delete("/delete-chats", summary="Delete a chat session")
 async def delete_chat(input: DeleteChatDataInput):
 
     # Deletes an entire chat session from Redis.
